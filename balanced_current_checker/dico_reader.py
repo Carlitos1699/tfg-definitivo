@@ -99,11 +99,8 @@ _SPEED_ME = 'Wxx_emot_n'
 _SPEED_HSG = 'Wxx_emot_n_emot2'
 # DICO name user added -> actual MF4 name
 _VOLTAGE_DICO = 'Wxx_udc_cs'
-_VOLTAGE_MF4 = 'Wxx_udc_cs_ftr'
 _TEMP_ME_DICO = 'Vxx_esti_rot_temp'
-_TEMP_ME_MF4 = 'Vxx_esti_rot_temp_raw'
 _TEMP_HSG_DICO = 'Vxx_esti_rot_temp_emot2'
-_TEMP_HSG_MF4 = 'Vxx_esti_rot_temp_raw_emot2'
 _SYNC_MODE_ME = 'Wbx_spt_sync_act_cs'
 _SYNC_MODE_HSG = 'Wbx_spt_sync_act_cs_emot2'
 _TQ_CONS_ME = 'Vxx_cs_tq_sp'
@@ -239,15 +236,8 @@ def read_torque_channels(filepath: str) -> Dict[str, TorqueChannels]:
                 descriptions[name] = str(row[2]).strip()
     DICO_DESCRIPTIONS.update(descriptions)
 
-    # Map DICO names to actual MF4 names
-    dico_to_mf4_map = {
-        _VOLTAGE_DICO: _VOLTAGE_MF4,
-        _TEMP_ME_DICO: _TEMP_ME_MF4,
-        _TEMP_HSG_DICO: _TEMP_HSG_MF4,
-    }
-
     def _resolve(n: str) -> str:
-        return dico_to_mf4_map.get(n, n)
+        return n
 
     result = {}
     if _TQ_CMD_ME in defined and _SPEED_ME in defined and _TEMP_ME_DICO in defined:
