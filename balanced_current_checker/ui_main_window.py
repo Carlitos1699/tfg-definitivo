@@ -240,6 +240,25 @@ class MainWindow(QMainWindow):
 
         cfg_layout.addLayout(params_row)
 
+        # Analysis selection checkboxes
+        analysis_row = QHBoxLayout()
+        analysis_row.setSpacing(12)
+        analysis_row.addWidget(QLabel("Análisis:"))
+        self.chk_current = QCheckBox("Corrientes")
+        self.chk_current.setChecked(True)
+        analysis_row.addWidget(self.chk_current)
+        self.chk_torque = QCheckBox("Precisión par")
+        self.chk_torque.setChecked(True)
+        analysis_row.addWidget(self.chk_torque)
+        self.chk_power = QCheckBox("Balance potencia")
+        self.chk_power.setChecked(True)
+        analysis_row.addWidget(self.chk_power)
+        self.chk_thd = QCheckBox("THD")
+        self.chk_thd.setChecked(True)
+        analysis_row.addWidget(self.chk_thd)
+        analysis_row.addStretch()
+        cfg_layout.addLayout(analysis_row)
+
         opts_row = QHBoxLayout()
         self.chk_plot = QCheckBox("Generar gráfica PNG")
         self.chk_plot.setChecked(True)
@@ -563,8 +582,9 @@ class MainWindow(QMainWindow):
         if not dico:
             QMessageBox.warning(self, "Error", "Seleccione el fichero DICO")
             return
-        if not cal_path:
-            QMessageBox.warning(self, "Error", "Seleccione el fichero de calibración del inversor")
+        needs_cal = self.chk_torque.isChecked()
+        if needs_cal and not cal_path:
+            QMessageBox.warning(self, "Error", "Seleccione el fichero de calibración del inversor (necesario para análisis de par)")
             return
         if not Path(mf4).exists():
             QMessageBox.warning(self, "Error", f"No existe: {mf4}")
@@ -623,6 +643,12 @@ class MainWindow(QMainWindow):
             torque_perf_path=perf_path,
             torque_threshold_nm=self.spin_torque_th.value(),
             calibration_path=cal_path,
+            analyses_flags={
+                'current': self.chk_current.isChecked(),
+                'torque': self.chk_torque.isChecked(),
+                'power': self.chk_power.isChecked(),
+                'thd': self.chk_thd.isChecked(),
+            },
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
@@ -840,6 +866,16 @@ class MainWindow(QMainWindow):
         from power_analyzer import (power_balance_to_dataframe, efficiency_to_dataframe,
                                      power_comparison_to_dataframe, dls_eff_to_dataframe,
                                      balance_events_to_dataframe)
+
+        if power_result is None:
+            for t in (self.power_cases_table, self.power_comp_table,
+                       self.power_eff_table, self.power_dls_table,
+                       self.power_balance_events_table):
+                t.setRowCount(0)
+                t.setColumnCount(1)
+                t.setHorizontalHeaderLabels(["Análisis no ejecutado"])
+                t.setItem(0, 0, QTableWidgetItem("Seleccione 'Balance potencia' en la configuración"))
+            return
 
         # Cases table
         df_cases = power_balance_to_dataframe(power_result)

@@ -25,7 +25,8 @@ class AnalysisWorker(QThread):
 
     def __init__(self, mf4_path, dico_path, thresholds, window_ms, min_event_ms, raster,
                  architecture=None, can_mux_paths=None, equivalence_path=None,
-                 torque_perf_path=None, torque_threshold_nm=5.0, calibration_path=None):
+                 torque_perf_path=None, torque_threshold_nm=5.0, calibration_path=None,
+                 analyses_flags=None):
         super().__init__()
         self.torque_threshold_nm = torque_threshold_nm
         self.mf4_path = mf4_path
@@ -39,6 +40,9 @@ class AnalysisWorker(QThread):
         self.equivalence_path = equivalence_path
         self.torque_perf_path = torque_perf_path
         self.calibration_path = calibration_path
+        self.analyses_flags = analyses_flags or {
+            'current': True, 'torque': True, 'power': True, 'thd': True,
+        }
 
     def run(self):
         try:
@@ -210,107 +214,110 @@ class AnalysisWorker(QThread):
                     )
 
             analyses = []
-            total = len(machine_groups)
-            for i, (machine, mg) in enumerate(machine_groups.items()):
-                th = self.thresholds.get(machine, 2.0)
-                pct = 20 + int(70 * (i / total))
-                self.progress.emit(pct, f"Analizando {machine} (threshold=±{th}A)...")
-                analysis = analyze_machine(
-                    df, mg,
-                    threshold_a=th,
-                    window_ms=self.window_ms,
-                    min_event_ms=self.min_event_ms,
-                    can_columns=can_columns_map.get(machine, []),
-                )
-                analyses.append(analysis)
+            if self.analyses_flags.get('current'):
+                total = len(machine_groups)
+                for i, (machine, mg) in enumerate(machine_groups.items()):
+                    th = self.thresholds.get(machine, 2.0)
+                    pct = 20 + int(70 * (i / total))
+                    self.progress.emit(pct, f"Analizando {machine} (threshold=±{th}A)...")
+                    analysis = analyze_machine(
+                        df, mg,
+                        threshold_a=th,
+                        window_ms=self.window_ms,
+                        min_event_ms=self.min_event_ms,
+                        can_columns=can_columns_map.get(machine, []),
+                    )
+                    analyses.append(analysis)
 
             # Torque precision analysis
             torque_analyses = []
+            if self.analyses_flags.get('torque'):
+                self.progress.emit(85, "Leyendo calibración del inversor...")
+                calibrations = read_calibrations(self.calibration_path)
+                self.progress.emit(86, f"Calibración cargada ({len(calibrations.raw)} valores)")
 
-            self.progress.emit(85, "Leyendo calibración del inversor...")
-            calibrations = read_calibrations(self.calibration_path)
-            self.progress.emit(86, f"Calibración cargada ({len(calibrations.raw)} valores)")
+                # Resolve EAJS column for ME (fallback: CAN signal)
+                eajs_column = None
+                for machine, tc in (torque_channels or {}).items():
+                    if machine == 'ME':
+                        eajs_dico = getattr(tc, 'eajs_cor_act', '')
+                        if eajs_dico and eajs_dico in df.columns:
+                            eajs_column = eajs_dico
+                        else:
+                            for col in can_columns_map.get('ME', []):
+                                if 'CurativeAntiJerk' in col:
+                                    eajs_column = col
+                                    break
+                        break
 
-            # Resolve EAJS column for ME (fallback: CAN signal)
-            eajs_column = None
-            for machine, tc in (torque_channels or {}).items():
-                if machine == 'ME':
-                    eajs_dico = getattr(tc, 'eajs_cor_act', '')
-                    if eajs_dico and eajs_dico in df.columns:
-                        eajs_column = eajs_dico
-                    else:
-                        for col in can_columns_map.get('ME', []):
-                            if 'CurativeAntiJerk' in col:
-                                eajs_column = col
-                                break
-                    break
-
-            if torque_channels and perf_db:
-                total_tq = len(torque_channels)
-                for i, (machine, tc) in enumerate(torque_channels.items()):
-                    if tc.tq_cmd in df.columns and tc.tq_est in df.columns:
-                        pct = 90 + int(10 * (i / total_tq))
-                        self.progress.emit(pct, f"Analizando precisión de par {machine}...")
-                        ta = analyze_torque_precision(
-                            df, tc, perf_db=perf_db,
-                            threshold_nm=self.torque_threshold_nm,
-                            min_event_ms=self.min_event_ms,
-                            calibration=calibrations,
-                            eajs_column=eajs_column if machine == 'ME' else None,
-                            phase_channels=tuple(mg.channels) if machine in machine_groups and len(machine_groups[machine].channels) == 3 else None,
-                        )
-                        torque_analyses.append(ta)
+                if torque_channels and perf_db:
+                    total_tq = len(torque_channels)
+                    for i, (machine, tc) in enumerate(torque_channels.items()):
+                        if tc.tq_cmd in df.columns and tc.tq_est in df.columns:
+                            pct = 90 + int(10 * (i / total_tq))
+                            self.progress.emit(pct, f"Analizando precisión de par {machine}...")
+                            ta = analyze_torque_precision(
+                                df, tc, perf_db=perf_db,
+                                threshold_nm=self.torque_threshold_nm,
+                                min_event_ms=self.min_event_ms,
+                                calibration=calibrations,
+                                eajs_column=eajs_column if machine == 'ME' else None,
+                                phase_channels=tuple(mg.channels) if machine in machine_groups and len(machine_groups[machine].channels) == 3 else None,
+                            )
+                            torque_analyses.append(ta)
 
             # Power balance analysis
-            self.progress.emit(96, "Analizando balance de potencia...")
-            tc_me = torque_channels.get('ME') if torque_channels else None
-            tc_hsg = torque_channels.get('HSG') if torque_channels else None
+            power_result = None
+            if self.analyses_flags.get('power'):
+                self.progress.emit(96, "Analizando balance de potencia...")
+                tc_me = torque_channels.get('ME') if torque_channels else None
+                tc_hsg = torque_channels.get('HSG') if torque_channels else None
 
-            # Load DLS table for wheel torque
-            from dico_reader import read_dls_table
-            dls_table = read_dls_table(self.dico_path)
-            if dls_table:
-                self.progress.emit(96, f"DLS cargadas ({len(dls_table)} combinaciones)")
+                from dico_reader import read_dls_table
+                dls_table = read_dls_table(self.dico_path)
+                if dls_table:
+                    self.progress.emit(96, f"DLS cargadas ({len(dls_table)} combinaciones)")
 
-            power_result = analyze_power_balance(
-                df, tc_me=tc_me, tc_hsg=tc_hsg,
-                col_hvbus_v_inv1=_HVBUS_V_INV1_ME,
-                col_inv1_i=_INV1_I_ME,
-                col_hvbus_v_inv2=_HVBUS_V_INV2_HSG,
-                col_inv2_i=_INV2_I_HSG,
-                col_hvbus_aftr_rly=_HVBUS_AFTR_RLY_V,
-                col_i_d_me=_I_D_ME, col_i_q_me=_I_Q_ME,
-                col_v_d_me=_V_D_ME, col_v_q_me=_V_Q_ME,
-                col_i_d_hsg=_I_D_HSG, col_i_q_hsg=_I_Q_HSG,
-                col_v_d_hsg=_V_D_HSG, col_v_q_hsg=_V_Q_HSG,
-                col_est_tq_me_hevc=_EST_TQ_EMOT1_ME,
-                col_est_tq_hsg_hevc=_EST_TQ_EMOT2_HSG,
-                col_spd_me_hevc=_SPD_EMOT1_ME,
-                col_spd_hsg_hevc=_SPD_EMOT2_HSG,
-                col_ice_tq=_ICE_TQ, col_ice_spd=_ICE_SPD,
-                col_hvb_pow=_HVB_POW, col_p_cons=_HVBUS_POW_CONS_EST,
-                col_dls=_VNX_CRT_VH_DL,
-                dls_table=dls_table,
-                col_whl_spd=_WHL_SPD,
-                wheel_radius_m=_WHEEL_RADIUS_M,
-            )
-            print_power_balance(power_result)
-            print_dls_report(power_result)
-            print_balance_events(power_result)
+                power_result = analyze_power_balance(
+                    df, tc_me=tc_me, tc_hsg=tc_hsg,
+                    col_hvbus_v_inv1=_HVBUS_V_INV1_ME,
+                    col_inv1_i=_INV1_I_ME,
+                    col_hvbus_v_inv2=_HVBUS_V_INV2_HSG,
+                    col_inv2_i=_INV2_I_HSG,
+                    col_hvbus_aftr_rly=_HVBUS_AFTR_RLY_V,
+                    col_i_d_me=_I_D_ME, col_i_q_me=_I_Q_ME,
+                    col_v_d_me=_V_D_ME, col_v_q_me=_V_Q_ME,
+                    col_i_d_hsg=_I_D_HSG, col_i_q_hsg=_I_Q_HSG,
+                    col_v_d_hsg=_V_D_HSG, col_v_q_hsg=_V_Q_HSG,
+                    col_est_tq_me_hevc=_EST_TQ_EMOT1_ME,
+                    col_est_tq_hsg_hevc=_EST_TQ_EMOT2_HSG,
+                    col_spd_me_hevc=_SPD_EMOT1_ME,
+                    col_spd_hsg_hevc=_SPD_EMOT2_HSG,
+                    col_ice_tq=_ICE_TQ, col_ice_spd=_ICE_SPD,
+                    col_hvb_pow=_HVB_POW, col_p_cons=_HVBUS_POW_CONS_EST,
+                    col_dls=_VNX_CRT_VH_DL,
+                    dls_table=dls_table,
+                    col_whl_spd=_WHL_SPD,
+                    wheel_radius_m=_WHEEL_RADIUS_M,
+                )
+                print_power_balance(power_result)
+                print_dls_report(power_result)
+                print_balance_events(power_result)
 
             # THD analysis
-            self.progress.emit(97, "Analizando THD de corrientes...")
             thd_result = ThdResult(me=None, hsg=None)
-            for machine, mg in (machine_groups or {}).items():
-                if mg and len(mg.channels) == 3:
-                    tc = (torque_channels or {}).get(machine)
-                    poles = 8 if machine == 'ME' else 4
-                    mthd = analyze_thd(df, mg, tc, machine, poles)
-                    if machine == 'ME':
-                        thd_result.me = mthd
-                    else:
-                        thd_result.hsg = mthd
-            print_thd_result(thd_result)
+            if self.analyses_flags.get('thd'):
+                self.progress.emit(97, "Analizando THD de corrientes...")
+                for machine, mg in (machine_groups or {}).items():
+                    if mg and len(mg.channels) == 3:
+                        tc = (torque_channels or {}).get(machine)
+                        poles = 8 if machine == 'ME' else 4
+                        mthd = analyze_thd(df, mg, tc, machine, poles)
+                        if machine == 'ME':
+                            thd_result.me = mthd
+                        else:
+                            thd_result.hsg = mthd
+                print_thd_result(thd_result)
 
             self.progress.emit(100, "Análisis completado.")
             print_torque_events(torque_analyses)
