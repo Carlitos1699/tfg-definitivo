@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+output/
+*.mf4
+*.xlsx
+*.db
+*.log
+.env
+.vscode/
+.idea/
+.DS_Store
+*.egg-info/
