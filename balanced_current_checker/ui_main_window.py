@@ -431,10 +431,12 @@ class MainWindow(QMainWindow):
              "Eff ME HEVC (%)", "Eff ME INV (%)", "Diff ME (%)",
              "Eff HSG HEVC (%)", "Eff HSG INV (%)", "Diff HSG (%)",
              "Error balance (kW)", "% balance OK"])
-        self.power_cases_table.horizontalHeader().setStretchLastSection(True)
+        h = self.power_cases_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.Stretch)
+        h.setWordWrap(True)
         self.power_cases_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.power_cases_table.setAlternatingRowColors(True)
-        layout.addWidget(self.power_cases_table)
+        layout.addWidget(self.power_cases_table, stretch=3)
 
         lbl_comp = QLabel("Comparación HEVC vs INV (global)")
         layout.addWidget(lbl_comp)
@@ -443,10 +445,11 @@ class MainWindow(QMainWindow):
         self.power_comp_table.setHorizontalHeaderLabels(
             ["Máquina", "P_HEVC media", "P_INV media", "Offset HEVC-INV",
              "P_mec HEVC", "P_mec INV", "Perdidas INV", "Eff INV (%)"])
-        self.power_comp_table.horizontalHeader().setStretchLastSection(True)
+        h = self.power_comp_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.Stretch)
         self.power_comp_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.power_comp_table.setAlternatingRowColors(True)
-        layout.addWidget(self.power_comp_table)
+        layout.addWidget(self.power_comp_table, stretch=1)
 
         lbl_eff = QLabel("Rendimientos por máquina y modo")
         layout.addWidget(lbl_eff)
@@ -455,10 +458,11 @@ class MainWindow(QMainWindow):
         self.power_eff_table.setHorizontalHeaderLabels(
             ["Máquina", "Modo", "Rendimiento (%)", "P_mec media (kW)",
              "P_elec media (kW)", "Muestras"])
-        self.power_eff_table.horizontalHeader().setStretchLastSection(True)
+        h = self.power_eff_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.Stretch)
         self.power_eff_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.power_eff_table.setAlternatingRowColors(True)
-        layout.addWidget(self.power_eff_table, 1)
+        layout.addWidget(self.power_eff_table, stretch=1)
 
         lbl_dls = QLabel("Rendimiento por marcha (DLS)")
         layout.addWidget(lbl_dls)
@@ -471,10 +475,12 @@ class MainWindow(QMainWindow):
              "HSG motor HEVC (%)", "HSG motor INV (%)",
              "HSG gen HEVC (%)", "HSG gen INV (%)",
              "ICE+HSG (%)"])
-        self.power_dls_table.horizontalHeader().setStretchLastSection(True)
+        h = self.power_dls_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.Stretch)
+        h.setWordWrap(True)
         self.power_dls_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.power_dls_table.setAlternatingRowColors(True)
-        layout.addWidget(self.power_dls_table)
+        layout.addWidget(self.power_dls_table, stretch=2)
 
         lbl_be = QLabel("Eventos de desbalance de potencia")
         layout.addWidget(lbl_be)
@@ -483,10 +489,11 @@ class MainWindow(QMainWindow):
         self.power_balance_events_table.setHorizontalHeaderLabels(
             ["Inicio (s)", "Fin (s)", "Duracion (s)",
              "Error max (kW)", "Error medio (kW)", "Muestras"])
-        self.power_balance_events_table.horizontalHeader().setStretchLastSection(True)
+        h = self.power_balance_events_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.Stretch)
         self.power_balance_events_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.power_balance_events_table.setAlternatingRowColors(True)
-        layout.addWidget(self.power_balance_events_table, 1)
+        layout.addWidget(self.power_balance_events_table, stretch=1)
 
     def _build_thd_tab(self):
         layout = QVBoxLayout(self.tab_thd)
@@ -874,6 +881,7 @@ class MainWindow(QMainWindow):
                 t.setRowCount(0)
                 t.setColumnCount(1)
                 t.setHorizontalHeaderLabels(["Análisis no ejecutado"])
+                t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
                 t.setItem(0, 0, QTableWidgetItem("Seleccione 'Balance potencia' en la configuración"))
             return
 
@@ -898,7 +906,6 @@ class MainWindow(QMainWindow):
                     text = str(val)
                 self.power_cases_table.setItem(r, c, QTableWidgetItem(text))
         self.power_cases_table.setSortingEnabled(True)
-        self.power_cases_table.resizeColumnsToContents()
 
         # Comparison table
         df_comp = power_comparison_to_dataframe(power_result)
@@ -921,7 +928,6 @@ class MainWindow(QMainWindow):
                     text = str(val)
                 self.power_comp_table.setItem(r, c, QTableWidgetItem(text))
         self.power_comp_table.setSortingEnabled(True)
-        self.power_comp_table.resizeColumnsToContents()
 
         # Efficiency table
         df_eff = efficiency_to_dataframe(power_result)
@@ -937,7 +943,6 @@ class MainWindow(QMainWindow):
                 text = f"{val:.2f}" if isinstance(val, float) else str(val)
                 self.power_eff_table.setItem(r, c, QTableWidgetItem(text))
         self.power_eff_table.setSortingEnabled(True)
-        self.power_eff_table.resizeColumnsToContents()
 
         # DLS efficiency table
         df_dls = dls_eff_to_dataframe(power_result)
@@ -960,7 +965,6 @@ class MainWindow(QMainWindow):
                     text = str(val)
                 self.power_dls_table.setItem(r, c, QTableWidgetItem(text))
         self.power_dls_table.setSortingEnabled(True)
-        self.power_dls_table.resizeColumnsToContents()
 
         # Balance events table
         df_be = balance_events_to_dataframe(power_result)
@@ -978,7 +982,6 @@ class MainWindow(QMainWindow):
                 text = f"{val:.4f}" if isinstance(val, float) else str(val)
                 self.power_balance_events_table.setItem(r, c, QTableWidgetItem(text))
         self.power_balance_events_table.setSortingEnabled(True)
-        self.power_balance_events_table.resizeColumnsToContents()
 
     def _populate_thd(self, thd_result):
         from thd_analyzer import thd_to_dataframe
