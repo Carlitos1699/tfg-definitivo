@@ -80,6 +80,8 @@ class TorqueChannels:
     rgl_sat: str = ''
     # PWM switching frequency channel
     pwm_frq: str = ''
+    # PWM strategy channel (0=SVM, 1=FTB)
+    pwm_strat: str = ''
     # Current channels (Id, Iq)
     i_d: str = ''
     i_q: str = ''
@@ -144,6 +146,8 @@ _INVT_STOP_ME = 'Vbx_invt_stop'
 _INVT_STOP_HSG = 'Vbx_invt_stop_emot2'
 _PWM_FRQ_ME = 'Vsx_pwm_frq_req'
 _PWM_FRQ_HSG = 'Vsx_pwm_frq_req_emot2'
+_PWM_STRAT_ME = 'Vbx_invt_stg_chgt'
+_PWM_STRAT_HSG = 'Vbx_invt_stg_chgt_emot2'
 _SPT_DER_V_OOR_ME = 'Vbx_spt_der_v_oor'
 _SPT_DER_V_OOR_HSG = 'Vbx_spt_der_v_oor_emot2'
 _SPT_DER_OVH_ME = 'Vbx_spt_der_ovh'
@@ -278,6 +282,7 @@ def read_torque_channels(filepath: str) -> Dict[str, TorqueChannels]:
             back_der_act=_BACK_DER_ACT_ME if _BACK_DER_ACT_ME in defined else '',
             eajs_cor_act=_EAJS_COR_ACT_ME if _EAJS_COR_ACT_ME in defined else '',
             pwm_frq=_PWM_FRQ_ME if _PWM_FRQ_ME in defined else '',
+            pwm_strat=_PWM_STRAT_ME if _PWM_STRAT_ME in defined else '',
             v_d=_V_D_ME if _V_D_ME in defined else '',
             v_q=_V_Q_ME if _V_Q_ME in defined else '',
             v_d_ang=_V_D_ANG_ME if _V_D_ANG_ME in defined else '',
@@ -324,6 +329,7 @@ def read_torque_channels(filepath: str) -> Dict[str, TorqueChannels]:
             back_der_act=_BACK_DER_ACT_HSG if _BACK_DER_ACT_HSG in defined else '',
             eajs_cor_act=_EAJS_COR_ACT_HSG if _EAJS_COR_ACT_HSG in defined else '',
             pwm_frq=_PWM_FRQ_HSG if _PWM_FRQ_HSG in defined else '',
+            pwm_strat=_PWM_STRAT_HSG if _PWM_STRAT_HSG in defined else '',
             v_d=_V_D_HSG if _V_D_HSG in defined else '',
             v_q=_V_Q_HSG if _V_Q_HSG in defined else '',
             v_d_ang=_V_D_ANG_HSG if _V_D_ANG_HSG in defined else '',

@@ -15,6 +15,7 @@ class SyncRiskPoint:
     f_elec_hz: float
     f_sw_hz: int
     carrier_ratio: float
+    pwm_strategy: str
     thd_avg: float
     i5_pct: float
     i7_pct: float
@@ -30,16 +31,33 @@ class SyncRiskResult:
     hsg: List[SyncRiskPoint] = field(default_factory=list)
 
 
-def _get_pwm_freq_at_segment(df: pd.DataFrame, pwm_ch: str, start_idx: int, end_idx: int) -> int:
-    if pwm_ch not in df.columns:
-        return 0
-    vals = df[pwm_ch].iloc[start_idx:end_idx].dropna()
+STRAT_MAP = {0: 'SVM', 1: 'FTB'}
+
+
+def _mode_at_segment(df: pd.DataFrame, ch: str, start_idx: int, end_idx: int):
+    if ch not in df.columns:
+        return None
+    vals = df[ch].iloc[start_idx:end_idx].dropna()
     if vals.empty:
-        return 0
+        return None
     mode_val = vals.mode()
     if mode_val.empty:
+        return None
+    return mode_val.iloc[0]
+
+
+def _get_pwm_freq_at_segment(df: pd.DataFrame, pwm_ch: str, start_idx: int, end_idx: int) -> int:
+    val = _mode_at_segment(df, pwm_ch, start_idx, end_idx)
+    if val is None:
         return 0
-    return PWM_FREQ_MAP.get(int(mode_val.iloc[0]), 0)
+    return PWM_FREQ_MAP.get(int(val), 0)
+
+
+def _get_strategy_at_segment(df: pd.DataFrame, strat_ch: str, start_idx: int, end_idx: int) -> str:
+    val = _mode_at_segment(df, strat_ch, start_idx, end_idx)
+    if val is None:
+        return '-'
+    return STRAT_MAP.get(int(val), '-')
 
 
 def _assess_risk(thd_avg: float, harmonics: Dict[int, float], carrier_ratio: float) -> tuple:
@@ -65,6 +83,8 @@ def analyze_sync_risk(
     df: pd.DataFrame,
     pwm_me: str,
     pwm_hsg: str,
+    strat_me: str = '',
+    strat_hsg: str = '',
     speed_me: str = 'Wxx_emot_n',
     speed_hsg: str = 'Wxx_emot_n_emot2',
     poles_me: int = 8,
@@ -72,9 +92,9 @@ def analyze_sync_risk(
 ) -> SyncRiskResult:
     result = SyncRiskResult()
 
-    for label, mthd, pwm_ch, speed_ch, poles in [
-        ('ME', thd_result.me, pwm_me, speed_me, poles_me),
-        ('HSG', thd_result.hsg, pwm_hsg, speed_hsg, poles_hsg),
+    for label, mthd, pwm_ch, strat_ch, speed_ch, poles in [
+        ('ME', thd_result.me, pwm_me, strat_me, speed_me, poles_me),
+        ('HSG', thd_result.hsg, pwm_hsg, strat_hsg, speed_hsg, poles_hsg),
     ]:
         if not mthd or not mthd.measurements:
             continue
@@ -85,6 +105,7 @@ def analyze_sync_risk(
             if f_sw == 0:
                 continue
             carrier_ratio = f_sw / f_elec if f_elec > 0 else 0
+            strategy = _get_strategy_at_segment(df, strat_ch, m.start_idx, m.end_idx)
             i5 = round(m.harmonics.get(5, 0), 2) if m.harmonics else 0.0
             i7 = round(m.harmonics.get(7, 0), 2) if m.harmonics else 0.0
             i11 = round(m.harmonics.get(11, 0), 2) if m.harmonics else 0.0
@@ -98,6 +119,7 @@ def analyze_sync_risk(
                 f_elec_hz=round(f_elec, 1),
                 f_sw_hz=f_sw,
                 carrier_ratio=round(carrier_ratio, 1),
+                pwm_strategy=strategy,
                 thd_avg=m.thd_avg,
                 i5_pct=i5,
                 i7_pct=i7,
@@ -121,12 +143,12 @@ def print_sync_risk(result: SyncRiskResult):
             continue
         print(f"\n=== Riesgo de sincronía PWM - {label} ===")
         print(f"{'Vel(rpm)':>9s} | {'Par(Nm)':>8s} | {'f_elec':>6s} | {'f_sw':>5s} | {'m_f':>5s} | "
-              f"{'THD%':>5s} | {'I5%':>5s} | {'I7%':>5s} | {'I11%':>5s} | {'I13%':>5s} | Riesgo | Armónicos")
-        print("-" * 90)
+              f"{'Estrat':>6s} | {'THD%':>5s} | {'I5%':>5s} | {'I7%':>5s} | {'I11%':>5s} | {'I13%':>5s} | Riesgo | Armónicos")
+        print("-" * 98)
         high = medium = 0
         for p in points:
             print(f"{p.speed_rpm:9.0f} | {p.torque_nm:8.1f} | {p.f_elec_hz:6.1f} | "
-                  f"{p.f_sw_hz:5d} | {p.carrier_ratio:5.1f} | {p.thd_avg:5.2f} | "
+                  f"{p.f_sw_hz:5d} | {p.carrier_ratio:5.1f} | {p.pwm_strategy:>6s} | {p.thd_avg:5.2f} | "
                   f"{p.i5_pct:5.2f} | {p.i7_pct:5.2f} | {p.i11_pct:5.2f} | {p.i13_pct:5.2f} | "
                   f"{p.risk_level:>7s} | {p.dominant_harmonics}")
             if p.risk_level == 'high':
@@ -148,6 +170,7 @@ def sync_risk_to_dataframe(result: SyncRiskResult) -> pd.DataFrame:
                 'f_elec (Hz)': p.f_elec_hz,
                 'f_sw (Hz)': p.f_sw_hz,
                 'm_f': p.carrier_ratio,
+                'Estrategia': p.pwm_strategy,
                 'THD avg (%)': p.thd_avg,
                 'I5 (%)': p.i5_pct,
                 'I7 (%)': p.i7_pct,

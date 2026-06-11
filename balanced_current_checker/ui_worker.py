@@ -93,8 +93,8 @@ class AnalysisWorker(QThread):
                 'rgl_sat',
                 # Current channels (Id, Iq)
                 'i_d', 'i_q', 'i_d_req', 'i_q_req',
-                # PWM frequency
-                'pwm_frq',
+                # PWM frequency and strategy
+                'pwm_frq', 'pwm_strat',
             )
             for tc in torque_channels.values():
                 for attr in _DERATING_ATTRS:
@@ -328,12 +328,15 @@ class AnalysisWorker(QThread):
                 self.progress.emit(98, "Analizando riesgo de sincronía PWM...")
                 pwm_me = torque_channels.get('ME').pwm_frq if 'ME' in torque_channels else ''
                 pwm_hsg = torque_channels.get('HSG').pwm_frq if 'HSG' in torque_channels else ''
+                strat_me = torque_channels.get('ME').pwm_strat if 'ME' in torque_channels else ''
+                strat_hsg = torque_channels.get('HSG').pwm_strat if 'HSG' in torque_channels else ''
                 if pwm_me or pwm_hsg:
                     speed_me = torque_channels.get('ME').speed if 'ME' in torque_channels else 'Wxx_emot_n'
                     speed_hsg = torque_channels.get('HSG').speed if 'HSG' in torque_channels else 'Wxx_emot_n_emot2'
                     sync_result = analyze_sync_risk(
                         thd_result, df,
                         pwm_me=pwm_me, pwm_hsg=pwm_hsg,
+                        strat_me=strat_me, strat_hsg=strat_hsg,
                         speed_me=speed_me, speed_hsg=speed_hsg,
                     )
                     print_sync_risk(sync_result)

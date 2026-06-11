@@ -513,6 +513,22 @@ class MainWindow(QMainWindow):
         self.thd_table.setAlternatingRowColors(True)
         layout.addWidget(self.thd_table, 1)
 
+    def _build_sync_tab(self):
+        layout = QVBoxLayout(self.tab_sync)
+        lbl = QLabel("Riesgo de sincronía PWM por punto de operación estable")
+        layout.addWidget(lbl)
+        self.sync_table = QTableWidget()
+        self.sync_table.setColumnCount(14)
+        self.sync_table.setHorizontalHeaderLabels(
+            ["Máquina", "Vel (rpm)", "Par (Nm)", "f_elec (Hz)",
+             "f_sw (Hz)", "m_f", "Estrategia", "THD avg (%)", "I5 (%)", "I7 (%)",
+             "I11 (%)", "I13 (%)", "Riesgo", "Armónicos dom."])
+        self.sync_table.horizontalHeader().setStretchLastSection(True)
+        self.sync_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.sync_table.setAlternatingRowColors(True)
+        self.sync_table.setSortingEnabled(True)
+        layout.addWidget(self.sync_table, 1)
+
     def _build_graph_tab(self):
         layout = QVBoxLayout(self.tab_graph)
         graph_btn_row = QHBoxLayout()
