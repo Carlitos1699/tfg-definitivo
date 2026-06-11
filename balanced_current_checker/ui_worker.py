@@ -14,12 +14,13 @@ from torque_analyzer import analyze_torque_precision, print_torque_events
 from power_analyzer import analyze_power_balance, print_power_balance, print_dls_report, print_balance_events
 from calibrables_reader import read_calibrations
 from thd_analyzer import analyze_thd, print_thd_result, ThdResult
+from sync_analyzer import analyze_sync_risk, print_sync_risk, sync_risk_to_dataframe
 import pandas as pd
 
 
 class AnalysisWorker(QThread):
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(object, object, object, object, object, object)
+    finished = pyqtSignal(object, object, object, object, object, object, object)
     error_occurred = pyqtSignal(str)
     warning_occurred = pyqtSignal(str)
 
@@ -41,7 +42,7 @@ class AnalysisWorker(QThread):
         self.torque_perf_path = torque_perf_path
         self.calibration_path = calibration_path
         self.analyses_flags = analyses_flags or {
-            'current': True, 'torque': True, 'power': True, 'thd': True,
+            'current': True, 'torque': True, 'power': True, 'thd': True, 'sync': True,
         }
 
     def run(self):
@@ -92,6 +93,8 @@ class AnalysisWorker(QThread):
                 'rgl_sat',
                 # Current channels (Id, Iq)
                 'i_d', 'i_q', 'i_d_req', 'i_q_req',
+                # PWM frequency
+                'pwm_frq',
             )
             for tc in torque_channels.values():
                 for attr in _DERATING_ATTRS:
@@ -319,9 +322,25 @@ class AnalysisWorker(QThread):
                             thd_result.hsg = mthd
                 print_thd_result(thd_result)
 
+            # Sync risk analysis
+            sync_result = None
+            if thd_result and torque_channels:
+                self.progress.emit(98, "Analizando riesgo de sincronía PWM...")
+                pwm_me = torque_channels.get('ME').pwm_frq if 'ME' in torque_channels else ''
+                pwm_hsg = torque_channels.get('HSG').pwm_frq if 'HSG' in torque_channels else ''
+                if pwm_me or pwm_hsg:
+                    speed_me = torque_channels.get('ME').speed if 'ME' in torque_channels else 'Wxx_emot_n'
+                    speed_hsg = torque_channels.get('HSG').speed if 'HSG' in torque_channels else 'Wxx_emot_n_emot2'
+                    sync_result = analyze_sync_risk(
+                        thd_result, df,
+                        pwm_me=pwm_me, pwm_hsg=pwm_hsg,
+                        speed_me=speed_me, speed_hsg=speed_hsg,
+                    )
+                    print_sync_risk(sync_result)
+
             self.progress.emit(100, "Análisis completado.")
             print_torque_events(torque_analyses)
-            self.finished.emit(analyses, df, can_signals, torque_analyses, power_result, thd_result)
+            self.finished.emit(analyses, df, can_signals, torque_analyses, power_result, thd_result, sync_result)
 
         except Exception as e:
             self.error_occurred.emit(str(e))

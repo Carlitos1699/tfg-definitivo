@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self._can_signals = None
         self._torque_analyses = []
         self._power_result = None
+        self._sync_result = None
         self._eq_path_used = None
 
         self._build_ui()
@@ -256,6 +257,9 @@ class MainWindow(QMainWindow):
         self.chk_thd = QCheckBox("THD")
         self.chk_thd.setChecked(True)
         analysis_row.addWidget(self.chk_thd)
+        self.chk_sync = QCheckBox("Sincronía PWM")
+        self.chk_sync.setChecked(True)
+        analysis_row.addWidget(self.chk_sync)
         analysis_row.addStretch()
         cfg_layout.addLayout(analysis_row)
 
@@ -323,6 +327,11 @@ class MainWindow(QMainWindow):
         self.tab_thd = QWidget()
         self._build_thd_tab()
         self.tabs.addTab(self.tab_thd, "📊 THD Corrientes")
+
+        # Tab: Sync Risk
+        self.tab_sync = QWidget()
+        self._build_sync_tab()
+        self.tabs.addTab(self.tab_sync, "🔀 Sincronía PWM")
 
         # Export row
         export_row = QHBoxLayout()
@@ -648,6 +657,7 @@ class MainWindow(QMainWindow):
                 'torque': self.chk_torque.isChecked(),
                 'power': self.chk_power.isChecked(),
                 'thd': self.chk_thd.isChecked(),
+                'sync': self.chk_sync.isChecked(),
             },
         )
         self._worker.progress.connect(self._on_progress)
@@ -660,13 +670,14 @@ class MainWindow(QMainWindow):
         self.progress.setValue(pct)
         self.lbl_status.setText(msg)
 
-    def _on_finished(self, analyses, df, can_signals, torque_analyses, power_result, thd_result):
+    def _on_finished(self, analyses, df, can_signals, torque_analyses, power_result, thd_result, sync_result):
         self._analyses = analyses
         self._df = df
         self._can_signals = can_signals
         self._torque_analyses = torque_analyses
         self._power_result = power_result
         self._thd_result = thd_result
+        self._sync_result = sync_result
         self._current_machine_idx = 0
         self._eq_path_used = self.eq_path.text().strip()
 
@@ -676,6 +687,7 @@ class MainWindow(QMainWindow):
         self._populate_torque(torque_analyses)
         self._populate_power_balance(power_result)
         self._populate_thd(thd_result)
+        self._populate_sync_risk(sync_result)
         self._update_graph()
 
         self._set_tabs_enabled(True)
@@ -1003,6 +1015,44 @@ class MainWindow(QMainWindow):
                 self.thd_table.setItem(r, c, QTableWidgetItem(text))
         self.thd_table.setSortingEnabled(True)
         self.thd_table.resizeColumnsToContents()
+
+    def _populate_sync_risk(self, sync_result):
+        from sync_analyzer import sync_risk_to_dataframe
+        self.sync_table.setSortingEnabled(False)
+        self.sync_table.setRowCount(0)
+        if sync_result is None:
+            self.sync_table.setColumnCount(1)
+            self.sync_table.setHorizontalHeaderLabels(["Análisis no ejecutado"])
+            self.sync_table.setItem(0, 0, QTableWidgetItem("Seleccione 'Sincronía PWM' en la configuración"))
+            self.sync_table.setSortingEnabled(True)
+            return
+        df = sync_risk_to_dataframe(sync_result)
+        cols = list(df.columns) if not df.empty else []
+        if cols:
+            self.sync_table.setColumnCount(len(cols))
+            self.sync_table.setHorizontalHeaderLabels(cols)
+        for _, row in df.iterrows():
+            r = self.sync_table.rowCount()
+            self.sync_table.insertRow(r)
+            for c, col in enumerate(cols):
+                val = row[col]
+                if val is None:
+                    text = '-'
+                elif isinstance(val, float):
+                    text = f"{val:.2f}"
+                else:
+                    text = str(val)
+                item = QTableWidgetItem(text)
+                if col == 'Riesgo':
+                    if val == 'high':
+                        item.setForeground(Qt.red)
+                    elif val == 'medium':
+                        item.setForeground(QColor(255, 165, 0))
+                    else:
+                        item.setForeground(Qt.darkGreen)
+                self.sync_table.setItem(r, c, item)
+        self.sync_table.setSortingEnabled(True)
+        self.sync_table.resizeColumnsToContents()
 
     def _populate_events(self, analyses):
         self.events_table.setSortingEnabled(False)

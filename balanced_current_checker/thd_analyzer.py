@@ -15,6 +15,8 @@ class ThdMeasurement:
     thd_w: float
     thd_avg: float
     harmonics: Dict[int, float] = field(default_factory=dict)
+    start_idx: int = 0
+    end_idx: int = 0
 
 
 @dataclass
@@ -234,6 +236,8 @@ def analyze_thd(
             thd_w=round(avg_w, 2),
             thd_avg=round(avg_all, 2),
             harmonics=h_avg,
+            start_idx=s_start,
+            end_idx=s_end,
         ))
         print(f"[THD] {machine} seg {seg_idx}: {avg_speed:.0f}rpm {avg_torque:.1f}Nm -> THD={avg_all:.2f}% ({n_wins} wins)")
 
