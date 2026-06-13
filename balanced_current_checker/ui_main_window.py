@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QSplitter, QFrame, QStatusBar, QApplication, QTabWidget,
     QAbstractItemView, QComboBox, QStackedWidget,
 )
-from PyQt5.QtGui import QFont, QIcon
+from PyQt5.QtGui import QFont, QIcon, QColor
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
