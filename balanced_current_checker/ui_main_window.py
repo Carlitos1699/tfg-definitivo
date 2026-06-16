@@ -497,6 +497,20 @@ class MainWindow(QMainWindow):
         self.power_balance_events_table.setAlternatingRowColors(True)
         layout.addWidget(self.power_balance_events_table, 1)
 
+        # Sign validation section
+        lbl_sv = QLabel("Validación de signos de potencia y fórmula HVB")
+        layout.addWidget(lbl_sv)
+        self.power_sign_table = QTableWidget()
+        self.power_sign_table.setColumnCount(14)
+        self.power_sign_table.setHorizontalHeaderLabels(
+            ["Máquina", "Muestras", "Motor (P>0)", "P>0 motor", "P<0 motor",
+             "Gen (P<0)", "P>0 gen", "P<0 gen", "Coincidencia (%)",
+             "Convención", "Confianza (%)", "P_elec (kW)", "P_mec (kW)", "Offset (kW)"])
+        self.power_sign_table.horizontalHeader().setStretchLastSection(True)
+        self.power_sign_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.power_sign_table.setAlternatingRowColors(True)
+        layout.addWidget(self.power_sign_table, 1)
+
     def _build_thd_tab(self):
         layout = QVBoxLayout(self.tab_thd)
         lbl = QLabel("THD de corrientes de fase por punto de operacion")
@@ -702,8 +716,8 @@ class MainWindow(QMainWindow):
         self._populate_can(analyses, can_signals)
         self._populate_torque(torque_analyses)
         self._populate_power_balance(power_result)
+        self._populate_power_sign_validation(power_result)
         self._populate_thd(thd_result)
-        self._populate_sync_risk(sync_result)
         self._update_graph()
 
         self._set_tabs_enabled(True)
@@ -1007,6 +1021,30 @@ class MainWindow(QMainWindow):
                 self.power_balance_events_table.setItem(r, c, QTableWidgetItem(text))
         self.power_balance_events_table.setSortingEnabled(True)
         self.power_balance_events_table.resizeColumnsToContents()
+
+    def _populate_power_sign_validation(self, power_result):
+        from power_analyzer import power_sign_to_dataframe
+        df = power_sign_to_dataframe(power_result)
+        self.power_sign_table.setSortingEnabled(False)
+        self.power_sign_table.setRowCount(0)
+        cols = list(df.columns) if not df.empty else []
+        if cols:
+            self.power_sign_table.setColumnCount(len(cols))
+            self.power_sign_table.setHorizontalHeaderLabels(cols)
+        for _, row in df.iterrows():
+            r = self.power_sign_table.rowCount()
+            self.power_sign_table.insertRow(r)
+            for c, col in enumerate(cols):
+                val = row[col]
+                if val is None or val == '':
+                    text = ''
+                elif isinstance(val, float):
+                    text = f"{val:.2f}"
+                else:
+                    text = str(val)
+                self.power_sign_table.setItem(r, c, QTableWidgetItem(text))
+        self.power_sign_table.setSortingEnabled(True)
+        self.power_sign_table.resizeColumnsToContents()
 
     def _populate_thd(self, thd_result):
         from thd_analyzer import thd_to_dataframe

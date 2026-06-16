@@ -105,6 +105,7 @@ class PowerBalanceResult:
     dls_effs: List[DlsEffEntry]
     balance_events: List[BalanceEvent]
     total_samples: int
+    sign_validation: Optional[Dict] = None
 
 
 # ── Helper: classify operation case ──
@@ -857,5 +858,201 @@ def balance_events_to_dataframe(result: PowerBalanceResult) -> pd.DataFrame:
             'Error max (kW)': round(ev.max_error_kw, 3),
             'Error medio (kW)': round(ev.mean_error_kw, 3),
             'Muestras': ev.n_samples,
+        })
+    return pd.DataFrame(rows)
+
+
+# ── Power sign validation ──
+
+def validate_power_signs(
+    df: pd.DataFrame,
+    col_emot1_pow: str, col_emot2_pow: str,
+    col_tq1: str, col_tq2: str,
+    col_spd1: str, col_spd2: str,
+    col_hvb_pow: str, col_cons: str,
+) -> dict:
+    """Analyze sign coherence between direct power signals and mechanical power.
+    Returns dict with per-machine sign analysis and HVB formula validation."""
+    result = {}
+    astype = 'float64'
+
+    machines = [
+        ('ME', col_emot1_pow, col_tq1, col_spd1),
+        ('HSG', col_emot2_pow, col_tq2, col_spd2),
+    ]
+    total_samples = len(df)
+
+    for machine, col_pow, col_tq, col_spd in machines:
+        if col_pow not in df.columns or col_tq not in df.columns or col_spd not in df.columns:
+            continue
+
+        p_elec = df[col_pow].astype(astype).values / 1000.0  # W to kW
+        tq = df[col_tq].astype(astype).values
+        spd = df[col_spd].astype(astype).values
+        p_mec = tq * np.abs(spd) * _RPM_TO_RAD_S / 1000.0  # kW
+
+        # Active mask (machine doing significant work)
+        active = np.abs(p_mec) > _POWER_IDLE_KW
+        if not active.any():
+            continue
+
+        motor = active & (p_mec > 0)
+        gen = active & (p_mec < 0)
+
+        # Quadrant counts
+        motor_pos = int(np.sum(motor & (p_elec > 0)))   # P_mec>0 & P_elec_direct>0
+        motor_neg = int(np.sum(motor & (p_elec < 0)))   # P_mec>0 & P_elec_direct<0
+        gen_pos = int(np.sum(gen & (p_elec > 0)))       # P_mec<0 & P_elec_direct>0
+        gen_neg = int(np.sum(gen & (p_elec < 0)))       # P_mec<0 & P_elec_direct<0
+
+        total_motor = motor_pos + motor_neg
+        total_gen = gen_pos + gen_neg
+
+        # Coherent samples: P_mec and P_elec have same sign
+        coherent = int(np.sum((motor & (p_elec > 0)) | (gen & (p_elec < 0))))
+        total_active = total_motor + total_gen
+        coherence_pct = coherent / total_active * 100 if total_active > 0 else 0.0
+
+        # Detect convention
+        # Same sign (motor+) / (gen-) → "consumidor positivo"
+        # Opposite sign (motor-) / (gen+) → "generador positivo"
+        if coherent > total_active / 2:
+            detected_convention = 'consumidor+'
+            confidence = coherent / total_active * 100
+        else:
+            detected_convention = 'generador+'
+            confidence = (total_active - coherent) / total_active * 100
+
+        mean_p_elec = float(np.mean(p_elec[active]))
+        mean_p_mec = float(np.mean(p_mec[active]))
+
+        result[machine] = {
+            'total_samples': total_active,
+            'motor_samples': total_motor,
+            'motor_pos': motor_pos,
+            'motor_neg': motor_neg,
+            'gen_samples': total_gen,
+            'gen_pos': gen_pos,
+            'gen_neg': gen_neg,
+            'coherence_pct': round(coherence_pct, 1),
+            'detected_convention': detected_convention,
+            'confidence_pct': round(confidence, 1),
+            'mean_p_elec_direct_kw': round(mean_p_elec, 2),
+            'mean_p_mec_kw': round(mean_p_mec, 2),
+            'offset_kw': round(mean_p_elec - mean_p_mec, 2),
+        }
+
+    # HVB formula validation
+    if col_hvb_pow in df.columns and col_cons in df.columns:
+        hvb = df[col_hvb_pow].astype(astype).values / 1000.0
+        cons = df[col_cons].astype(astype).values / 1000.0
+
+        # Use detected conventions to estimate HVB
+        estimated_hvb = np.full(len(df), np.nan)
+
+        me_data = result.get('ME', {})
+        hsg_data = result.get('HSG', {})
+
+        me_pow = df[col_emot1_pow].astype(astype).values / 1000.0 if col_emot1_pow in df.columns else np.zeros(len(df))
+        hsg_pow = df[col_emot2_pow].astype(astype).values / 1000.0 if col_emot2_pow in df.columns else np.zeros(len(df))
+
+        me_sign = 1 if me_data.get('detected_convention') == 'consumidor+' else -1
+        hsg_sign = 1 if hsg_data.get('detected_convention') == 'consumidor+' else -1
+
+        # HVB formula: P_bat = motor1 + motor2 + consumption (all with same sign convention)
+        estimated_hvb = me_sign * me_pow + hsg_sign * hsg_pow + cons
+
+        valid = ~np.isnan(estimated_hvb) & (np.abs(hvb) > _POWER_IDLE_KW * 0.5)
+        if valid.any():
+            err = np.abs(estimated_hvb[valid] - hvb[valid])
+            result['hvb_validation'] = {
+                'hvb_pow_mean_kw': round(float(np.mean(hvb[valid])), 2),
+                'estimated_hvb_mean_kw': round(float(np.mean(estimated_hvb[valid])), 2),
+                'mean_error_kw': round(float(np.mean(err)), 2),
+                'max_error_kw': round(float(np.max(err)), 2),
+                'pct_within_2kw': round(float(np.sum(err < 2.0) / len(err) * 100), 1),
+                'samples_valid': int(np.sum(valid)),
+                'me_sign_coef': me_sign,
+                'hsg_sign_coef': hsg_sign,
+                'formula': f"HVB = ({'+' if me_sign > 0 else ''}{me_sign}) * emot1_pow + ({'+' if hsg_sign > 0 else ''}{hsg_sign}) * emot2_pow + cons",
+            }
+
+    return result
+
+
+def print_power_sign_validation(result: PowerBalanceResult):
+    sv = result.sign_validation
+    if not sv:
+        print("\n=== Validación de signos: NO DISPONIBLE ===")
+        return
+    print(f"\n=== Validación de signos de potencia ({result.total_samples} muestras) ===")
+    for machine in ('ME', 'HSG'):
+        d = sv.get(machine)
+        if not d:
+            continue
+        print(f"\n  {machine}:")
+        print(f"    Muestras activas: {d['total_samples']}")
+        print(f"    Motor (P_mec>0): {d['motor_samples']}  → P_direct>0: {d['motor_pos']}  P_direct<0: {d['motor_neg']}")
+        print(f"    Gen   (P_mec<0): {d['gen_samples']}  → P_direct>0: {d['gen_pos']}  P_direct<0: {d['gen_neg']}")
+        print(f"    Coincidencia signos: {d['coherence_pct']}%")
+        print(f"    Convención detectada: {d['detected_convention']} (confianza: {d['confidence_pct']}%)")
+        print(f"    P_elec_direct media: {d['mean_p_elec_direct_kw']:.2f} kW")
+        print(f"    P_mec media:          {d['mean_p_mec_kw']:.2f} kW")
+        print(f"    Offset (elec - mec):  {d['offset_kw']:.2f} kW")
+
+    hvb = sv.get('hvb_validation')
+    if hvb:
+        print(f"\n  Validación fórmula HVB:")
+        print(f"    Fórmula: {hvb['formula']}")
+        print(f"    HVB real media:       {hvb['hvb_pow_mean_kw']:.2f} kW")
+        print(f"    HVB estimado media:   {hvb['estimated_hvb_mean_kw']:.2f} kW")
+        print(f"    Error medio:          {hvb['mean_error_kw']:.2f} kW")
+        print(f"    Error máximo:         {hvb['max_error_kw']:.2f} kW")
+        print(f"    % dentro 2 kW:        {hvb['pct_within_2kw']:.1f}%")
+        print(f"    Muestras válidas:     {hvb['samples_valid']}")
+
+
+def power_sign_to_dataframe(result: PowerBalanceResult) -> pd.DataFrame:
+    sv = result.sign_validation
+    if not sv:
+        return pd.DataFrame()
+    rows = []
+    for machine in ('ME', 'HSG'):
+        d = sv.get(machine)
+        if not d:
+            continue
+        rows.append({
+            'Máquina': machine,
+            'Muestras activas': d['total_samples'],
+            'Motor (P_mec>0)': d['motor_samples'],
+            'P>0 motor': d['motor_pos'],
+            'P<0 motor': d['motor_neg'],
+            'Gen (P_mec<0)': d['gen_samples'],
+            'P>0 gen': d['gen_pos'],
+            'P<0 gen': d['gen_neg'],
+            'Coincidencia (%)': d['coherence_pct'],
+            'Convención': d['detected_convention'],
+            'Confianza (%)': d['confidence_pct'],
+            'P_elec (kW)': d['mean_p_elec_direct_kw'],
+            'P_mec (kW)': d['mean_p_mec_kw'],
+            'Offset (kW)': d['offset_kw'],
+        })
+    hvb = sv.get('hvb_validation')
+    if hvb:
+        rows.append({
+            'Máquina': 'HVB formula',
+            'Muestras activas': hvb['samples_valid'],
+            'Motor (P_mec>0)': '',
+            'P>0 motor': '',
+            'P<0 motor': '',
+            'Gen (P_mec<0)': '',
+            'P>0 gen': '',
+            'P<0 gen': '',
+            'Coincidencia (%)': '',
+            'Convención': hvb['formula'],
+            'Confianza (%)': '',
+            'P_elec (kW)': hvb['hvb_pow_mean_kw'],
+            'P_mec (kW)': hvb['estimated_hvb_mean_kw'],
+            'Offset (kW)': hvb['mean_error_kw'],
         })
     return pd.DataFrame(rows)

@@ -11,7 +11,7 @@ from can_mux_reader import read_can_mux
 from can_equivalence import EquivalenceDb
 from torque_reader import TorquePerfDatabase
 from torque_analyzer import analyze_torque_precision, print_torque_events
-from power_analyzer import analyze_power_balance, print_power_balance, print_dls_report, print_balance_events
+from power_analyzer import analyze_power_balance, print_power_balance, print_dls_report, print_balance_events, validate_power_signs, print_power_sign_validation
 from calibrables_reader import read_calibrations
 from thd_analyzer import analyze_thd, print_thd_result, ThdResult
 from sync_analyzer import analyze_sync_risk, print_sync_risk, sync_risk_to_dataframe
@@ -105,6 +105,7 @@ class AnalysisWorker(QThread):
 
             # Power balance channels
             from dico_reader import (
+                _EMOT1_POW_ME, _EMOT2_POW_HSG,
                 _INV1_I_ME, _HVBUS_V_INV1_ME,
                 _INV2_I_HSG, _HVBUS_V_INV2_HSG,
                 _HVBUS_AFTR_RLY_V,
@@ -118,6 +119,7 @@ class AnalysisWorker(QThread):
                 _WHL_SPD, _WHEEL_RADIUS_M,
             )
             _POWER_CHANNELS = [
+                _EMOT1_POW_ME, _EMOT2_POW_HSG,
                 _INV1_I_ME, _HVBUS_V_INV1_ME,
                 _INV2_I_HSG, _HVBUS_V_INV2_HSG,
                 _HVBUS_AFTR_RLY_V,
@@ -306,6 +308,17 @@ class AnalysisWorker(QThread):
                 print_power_balance(power_result)
                 print_dls_report(power_result)
                 print_balance_events(power_result)
+
+                if _EMOT1_POW_ME in df.columns or _EMOT2_POW_HSG in df.columns:
+                    self.progress.emit(96, "Validando signos de potencia...")
+                    power_result.sign_validation = validate_power_signs(
+                        df,
+                        col_emot1_pow=_EMOT1_POW_ME, col_emot2_pow=_EMOT2_POW_HSG,
+                        col_tq1=_EST_TQ_EMOT1_ME, col_tq2=_EST_TQ_EMOT2_HSG,
+                        col_spd1=_SPD_EMOT1_ME, col_spd2=_SPD_EMOT2_HSG,
+                        col_hvb_pow=_HVB_POW, col_cons=_HVBUS_POW_CONS_EST,
+                    )
+                    print_power_sign_validation(power_result)
 
             # THD analysis
             thd_result = ThdResult(me=None, hsg=None)
