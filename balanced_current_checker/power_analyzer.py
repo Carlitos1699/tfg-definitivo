@@ -959,8 +959,11 @@ def validate_power_signs(
         me_sign = 1 if me_data.get('detected_convention') == 'consumidor+' else -1
         hsg_sign = 1 if hsg_data.get('detected_convention') == 'consumidor+' else -1
 
-        # HVB formula: P_bat = motor1 + motor2 + consumption (all with same sign convention)
-        estimated_hvb = me_sign * me_pow + hsg_sign * hsg_pow + cons
+        # HVB formula: bus equation sum(P) = 0 => P_HVB = -(P_emot1 + P_emot2 + P_cons)
+        # cons is always negative (power drawn from bus), so -cons = abs(cons)
+        me_pow_signed = me_sign * me_pow
+        hsg_pow_signed = hsg_sign * hsg_pow
+        estimated_hvb = -(me_pow_signed + hsg_pow_signed + cons)
 
         valid = ~np.isnan(estimated_hvb) & (np.abs(hvb) > _POWER_IDLE_KW * 0.5)
         if valid.any():
@@ -974,7 +977,7 @@ def validate_power_signs(
                 'samples_valid': int(np.sum(valid)),
                 'me_sign_coef': me_sign,
                 'hsg_sign_coef': hsg_sign,
-                'formula': f"HVB = ({'+' if me_sign > 0 else ''}{me_sign}) * emot1_pow + ({'+' if hsg_sign > 0 else ''}{hsg_sign}) * emot2_pow + cons",
+                'formula': f"HVB = -(({'+' if me_sign > 0 else ''}{me_sign}) * emot1_pow + ({'+' if hsg_sign > 0 else ''}{hsg_sign}) * emot2_pow + cons)",
             }
 
     return result
