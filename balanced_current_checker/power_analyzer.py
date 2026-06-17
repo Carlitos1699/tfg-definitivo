@@ -620,6 +620,28 @@ def analyze_power_balance(
                 n_samples=int(e - s),
             ))
 
+        # Merge events with gap < 10 seconds
+        if balance_events:
+            merged = [balance_events[0]]
+            for ev in balance_events[1:]:
+                last = merged[-1]
+                gap = ev.start_time - last.end_time
+                if gap < 10.0:
+                    total_n = last.n_samples + ev.n_samples
+                    merged_mean = (last.mean_error_kw * last.n_samples +
+                                   ev.mean_error_kw * ev.n_samples) / total_n
+                    merged[-1] = BalanceEvent(
+                        start_time=last.start_time,
+                        end_time=ev.end_time,
+                        duration_s=ev.end_time - last.start_time,
+                        max_error_kw=max(last.max_error_kw, ev.max_error_kw),
+                        mean_error_kw=round(merged_mean, 3),
+                        n_samples=total_n,
+                    )
+                else:
+                    merged.append(ev)
+            balance_events = merged
+
     return PowerBalanceResult(cases=cases, efficiencies=effs,
                                dls_effs=dls_effs, balance_events=balance_events,
                                total_samples=total)
